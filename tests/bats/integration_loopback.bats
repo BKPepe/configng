@@ -191,3 +191,42 @@ root ${LOOP}p2 ext4"
 	[ "$status" -eq 0 ]
 	_ptable | grep -q '^label: gpt'
 }
+
+# sd scenario with a failing /boot mapping. Only the [ -b ] checks need the loop
+# device: every disk-touching step is stubbed.
+_sd_scenario_map_fails() {
+	install_sd_capable() { return 0; }
+	install_check_fs_tools() { return 0; }
+	install_fs_kernel_supported() { return 0; }
+	install_source_table_type() { echo msdos; }
+	install_apply_partitions() { echo "root $LOOP"; }
+	install_make_filesystems() { return 0; }
+	mktemp() { mkdir -p "$BATS_TEST_TMPDIR/mp"; echo "$BATS_TEST_TMPDIR/mp"; }
+	mount() { return 0; }
+	umount() { return 0; }
+	install_transfer_rootfs() { mkdir -p "$1/etc"; }
+	install_uuid() { echo UUID=new; }
+	install_map_current_boot() { return 1; }
+	: >"$BATS_TEST_TMPDIR/exclude.txt"
+	run install_run_scenario sd "$LOOP" ext4 "$BATS_TEST_TMPDIR/exclude.txt"
+}
+
+@test "loopback: sd scenario leaves the current boot env alone when mapping /boot fails" {
+	local env="$BATS_TEST_TMPDIR/armbianEnv.txt"
+	printf 'rootdev=UUID=old\n' >"$env"
+	install_rpi_style_boot() { return 1; }
+	install_sd_env_file() { echo "$env"; }
+	_sd_scenario_map_fails
+	[ "$status" -eq "$INSTALL_EX_BOOTCFG" ]
+	[ "$(cat "$env")" = "rootdev=UUID=old" ]
+}
+
+@test "loopback: sd scenario leaves the current cmdline.txt alone when mapping /boot fails" {
+	local fw="$BATS_TEST_TMPDIR/fw"
+	mkdir -p "$fw"; printf 'console=tty1 root=UUID=old rootwait\n' >"$fw/cmdline.txt"
+	install_rpi_style_boot() { return 0; }
+	install_boot_firmware_dir() { echo "$fw"; }
+	_sd_scenario_map_fails
+	[ "$status" -eq "$INSTALL_EX_BOOTCFG" ]
+	[ "$(cat "$fw/cmdline.txt")" = "console=tty1 root=UUID=old rootwait" ]
+}
