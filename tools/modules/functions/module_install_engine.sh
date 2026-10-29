@@ -111,6 +111,11 @@ install_source_table_type() {
 	esac
 }
 
+# True when anything on <disk> is mounted or used as swap (e.g. the running / or /boot).
+install_disk_in_use() {
+	lsblk -nro MOUNTPOINT "$1" 2>/dev/null | grep -q .
+}
+
 # ---- detection --------------------------------------------------------------
 
 # Thin, overridable wrapper around lsblk so tests can inject fixtures.
@@ -1291,6 +1296,7 @@ install_run_scenario() {
 	# filters it from the menu, but refuse it here too so an explicit
 	# --target /dev/mtdblockN (or a TUI selection) can't repartition the SPI.
 	[[ "$disk" != /dev/mtdblock* ]] || { install_log ERR "scenario: '$disk' is SPI/MTD flash, not a valid install target"; return "$INSTALL_EX_NODEV"; }
+	! install_disk_in_use "$disk" || { install_log ERR "scenario: '$disk' has mounted filesystems - refusing to modify it"; return "$INSTALL_EX_USAGE"; }
 	[[ -f "$exclude" ]] || { install_log ERR "scenario: exclude file '$exclude' missing"; return "$INSTALL_EX_TRANSFER"; }
 	# Pre-flight: confirm we can make the target bootable AND format it BEFORE
 	# wiping anything - never destroy a disk we cannot finish installing to.
@@ -1530,6 +1536,8 @@ install_run_split() {
 	[[ -b "$root_disk" ]] || { install_log ERR "split: root device '$root_disk' is not a block device"; return "$INSTALL_EX_NODEV"; }
 	[[ "$root_disk" != /dev/mtdblock* ]] || { install_log ERR "split: root device '$root_disk' is SPI/MTD flash, not a valid install target"; return "$INSTALL_EX_NODEV"; }
 	[[ "$boot_disk" != "$root_disk" ]] || { install_log ERR "split: boot and root device must differ ('$boot_disk')"; return "$INSTALL_EX_USAGE"; }
+	! install_disk_in_use "$boot_disk" || { install_log ERR "split: boot device '$boot_disk' has mounted filesystems - refusing to modify it"; return "$INSTALL_EX_USAGE"; }
+	! install_disk_in_use "$root_disk" || { install_log ERR "split: root device '$root_disk' has mounted filesystems - refusing to modify it"; return "$INSTALL_EX_USAGE"; }
 	[[ -f "$exclude" ]] || { install_log ERR "split: exclude file '$exclude' missing"; return "$INSTALL_EX_TRANSFER"; }
 	# Pre-flight: u-boot hook + filesystem tooling must exist BEFORE we wipe.
 	[[ "$(type -t write_uboot_platform)" == function ]] \
